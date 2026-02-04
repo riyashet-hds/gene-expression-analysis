@@ -1,0 +1,670 @@
+---
+title: "Differential Expression and Co-expression Analysis of Tumour and Normal Tissue, January 2026"
+author: Riya Shet
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: false
+fontsize: 12pt
+mainfont: Arial
+
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+#Libraries
+library(tidyverse)
+library(MASS)
+library(pheatmap)
+
+getwd()
+list.files()
+
+#Data
+load("Coursework_Data.Rdata")
+
+dim(Y)
+head(Y[,1:3])
+str(patient_data)
+table(patient_data$tissue)
+length(unique(patient_data$patient_id))
+```
+
+
+## <span style="color:orange">Part 1: Data Exploration and Visualization</span>
+
+#### <span style="color:orange; font-weight:bold;">Q1</span>. Load the data and examine the structure of Y and patient_data. Provide a brief summary of what each object represents. Identify key features of the data, such as dimensions, column names, or unique values. (2 Marks)
+
+<span style="font-size: 24px; font-weight: bold; color: orange;">Answer </span>
+
+### <span style="color:orange"> 1.1 Data Structure
+```{r}
+# Add your R code here to load and inspect the data
+dim(Y)
+str(Y)
+str(patient_data)
+colnames(patient_data)
+length(unique(patient_data$patient_id))
+unique(patient_data$tissue)
+#Y contains a large expression matrix with 137040 gene expression measurements/elements for 4568 genes across 30 samples.
+#The patient_data table has 30 rows and 3 columns that are variables: tissue type (Tumor/Normal), a patient identifier, and a sample identifier.
+```
+### <span style="color:orange"> 1.2 Key Features of Y
+Y contains a large expression matrix with 137040 gene expression measurements/elements for 4568 genes across 30 samples.
+
+### <span style="color:orange"> 1.3 Key Features of patient_data
+The patient_data table has 30 rows and 3 columns that are variables: tissue type (Tumor/Normal), a patient identifier, and a sample identifier.
+
+#### <span style="color:orange; font-weight:bold;">Q2</span>. Explain the concept of library size in the context of this dataset. Discuss potential reasons why library size may vary across samples. Plot library size across the sample size for this dataset. Using the provided code, normalize the data by library size. Mathematically describe the normalization process you applied. Finally, plot library size across the sample size for this dataset after normalization. Comment on how normalization affects library size distribution across samples. (2 Marks)
+
+### <span style="color:orange"> 2.1 Concept of Library Size
+
+In RNA-sequencing, the ”library size” (or sequencing depth) refers to the total number of reads generated for a specific sample. 
+```{r}
+# Calculate library sizes (sum of counts per sample)
+lib_sizes <- colSums(Y)
+lib_sizes
+range(lib_sizes)
+mean(lib_sizes)
+sd(lib_sizes)
+```
+
+### <span style="color:orange"> 2.2 Library Sizes before CPM Normalization
+
+```{r}
+#png("Vizs/library_sizes_before_normalization.png",
+#    width = 900, height = 600)
+#par(mar= c(6,5,4,0))
+barplot(lib_sizes,
+        las=2,
+        main = "Library sizes before normalization",
+        ylab = "Total counts",
+        cex.axis = 0.8,
+        cex.names = 0.7)
+
+```
+
+### <span style="color:orange"> 2.3 Library Sizes after CPM Normalization
+```{r}
+# Normalize counts by library size and scale to 1 million (CPM)
+Y_cpm <- sweep(Y, 2, lib_sizes, FUN = "/") * 1e6
+#this is the CPM formula, CPM= raw count/library size * 1,000,000. This rescales each sample to a common total, it standardises it to one unit; "Counts per million" making it easy to compare.
+nonzero_samples<- lib_sizes >0
+Y_nonzero<- Y[,nonzero_samples]
+lib_sizes_nz<- lib_sizes[nonzero_samples]
+lib_sizes_cpm<-colSums(Y_cpm)
+#png("Vizs/library_sizes_after_normalization.png",
+#    width = 900, height = 600)
+#par(mar= c(6,5,4,0))
+barplot(lib_sizes_cpm,
+        las=2,
+        main = "Library sizes after normalization",
+        ylab = "Counts Per Million",
+        cex.axis = 0.8,
+        cex.names = 0.7)
+
+#the normalized barplot shows that the total counts of gene expression stabilize to around 1 million, except Sample003 which has a count of 0. The samples that might not have had sequencing depth in the prev plot, now reads the same as the rest because its a proportion.
+```
+### <span style="color:orange"> 2.3 Effect of Normalization
+The normalized barplot shows that the total counts of gene expression stabilize to around 1 million, except Sample003 which has a count of 0. The samples that might not have had sequencing depth in the previous plot, now reads the same as the rest because its a proportion.
+
+<span style="font-size: 24px; font-weight: bold; color: orange;">Answer </span>
+
+#### <span style="color:orange; font-weight:bold;">Q3</span>. For normal and cancer samples of patient 5, provide summary statistics for expression values and visualize the distributions. Use the normalized dataset. Comment on skewness and multimodality. Transform the gene expression matrix using $log2(Y + 1)$. For normal and cancer samples of patient 5, visualize the distributions and compare with the distributin in the previous task. Comment on skewness and multimodality. Now create a boxplot to show the distribution of gene expression across all samples before and after log transformation. You will have 30 boxplots side by side. Identify any problematic sample. Provide evidence for your selection. Remove the patient associated with the problematic sample. (4 Marks)
+
+<span style="font-size: 24px; font-weight: bold; color: orange;">Answer </span>
+
+### <span style="color:orange"> 3.1 Summary statistics for Patient 5
+```{r}
+is_p5<- patient_data$patient_id == "Patient.5"
+is_p5
+table(is_p5)
+patient_data[is_p5,]
+
+#giving p5 their sample names
+p5_tumor_id<- "Sample005"
+p5_normal_id<- "Sample020"
+
+#link Y_cpm with p5 from patient_id
+p5_tumor_cpm<- Y_cpm[,p5_tumor_id]
+p5_normal_cpm<- Y_cpm[,p5_normal_id]
+
+summary(p5_tumor_cpm)
+summary(p5_normal_cpm)
+#P5s normal sample has a slightly higher maximum CPM (45.6k vs 16.7k in tumor) but the tumor sample has a higher upper quartile(145.7 vs 45.2 in normal). This means more genes with moderately high expression.
+```
+Patient 5's normal sample has a slightly higher maximum CPM (45.6k vs 16.7k in tumor) but the tumor sample has a higher upper quartile (145.7 vs 45.2 in normal). This means more genes with moderately high expression.
+
+### <span style="color:orange"> 3.2 Tumor and Normal sample gene expression
+```{r}
+#png("Vizs/p5_raw_tumor.png",
+#    width = 900, height = 600)
+#par(mar= c(6,5,4,0))
+hist(p5_tumor_cpm, main= "Patient 5 tumor (CPM)",
+     xlab = "CPM",
+     ylab = "Number of genes")
+```
+
+```{r}
+#png("Vizs/p5_raw_normal.png",
+#    width = 900, height = 600)
+#par(mar= c(6,5,4,0))
+hist(p5_normal_cpm, main= "Patient 5 normal (CPM)",
+     xlab = "CPM",
+     ylab = "Number of genes")
+
+```
+
+
+### <span style="color:orange"> 3.3 Y-log Transformed Tumor and Normal sample gene expression
+
+```{r}
+
+Y_log<- log2(Y_cpm + 1) #contains log-transformed CPM values; used the formula of log2(CPM+1)
+
+p5_tumor_log<- Y_log[,p5_tumor_id]
+p5_normal_log<- Y_log[,p5_normal_id]
+
+#png("Vizs/p5_log2_tumor.png",
+#    width = 900, height = 600)
+#par(mar= c(6,5,4,0))
+hist(p5_tumor_log, main= "Patient 5 tumor (log2 transformed)",
+     xlab = "log2(CPM + 1)",
+     ylab = "Number of genes")
+```
+
+```{r}
+#png("Vizs/p5_log2_normal.png",
+#    width = 900, height = 600)
+#par(mar= c(6,5,4,0))
+hist(p5_normal_log, main= "Patient 5 normal (log2 transformed)",
+     xlab = "log2(CPM + 1)",
+     ylab = "Number of genes")
+#maximum: log2(45621+1) ~= log(45622) ~= 15.5, making the new range 0-16 vs old range of 0-50,000
+#bc the range shrunk, making the distribution more spread out and the peak is lower, the values moved away from 0 and into mid-range bars
+```
+### <span style="color:orange"> 3.4 Log-transformed gene expression across all samples
+```{r}
+
+#png("Vizs/all_samples_boxplot.png",
+#    width = 900, height = 600)
+#par(mar= c(6,5,3,3))
+boxplot(Y_log, outline= TRUE, las=2, main="All samples: log2(CPM+1)")
+```
+
+
+### <span style="color:orange"> 3.5 Quality Control and Sample Exclusion
+
+
+```{r}
+#Removing problematic sample- I chose sample003 because it carries no expression information, which would have distorted later analyses (especially PCA), so it is the natural "problematic" sample to remove
+s3_row <- patient_data$sample_id == "Sample003"
+patient_data[s3_row,] #identified sample 3 belongs to patient 3
+
+is_p3<- patient_data$patient_id == "Patient.3"
+patient_data[is_p3,]
+
+
+patient_data_clean <- patient_data[!is_p3,] #we remove the whole patient because if we had done tumor vs normal within patient analysis, the missing tumor data from sample003 would give skewed results. 
+
+Y_cpm_clean<- Y_cpm[,!is_p3]
+Y_log_clean <- Y_log[,!is_p3]
+sum(is_p3)
+which(is_p3)
+patient_data[is_p3, c("sample_id", "tissue", "patient_id")]
+ncol(Y_log_clean)
+```
+
+#### <span style="color:orange; font-weight:bold;">Q4</span>.  Draw an elbow plot for the first 15 PCs and then comment on it. Use the first two PCs to create the PCA plot for the expression matrix (add the proportion of variance explained to the axis labels). Color the points by tissue type and patient ID. What trends do you observe? To check whether PC1 or PC2 is associated with the technical variable **`library_size`**, propose a simple statistical test and explain why it is appropriate. (4 marks)
+
+<span style="font-size: 24px; font-weight: bold; color: orange;">Answer </span>
+
+
+### <span style="color:orange"> 4.1 Principal Component Analysis (PCA)
+
+
+```{r}
+?prcomp #rows are observations and columns are variables
+dim(t(Y_log_clean)) #to find patterns between samples, each sample must be one observation (row) and each gene is a variable(col)
+pca_results<- prcomp(t(Y_log_clean), center = TRUE, scale. = FALSE)
+dim(pca_results$x)
+#each sample = observation described by many gene expression values. We use variation of genes across samples to summarise differences between samples using PCs.
+#Each gene is one dimension (variable). 
+#Each sample is a point whose coordinates are log-CPM values on all genes [Gene1->x axis, Gene2-> y axis, Gene3 -> z axis] then each sample is a point at [Gene1 log-CPM, Gene2 log-CPM, Gene3 log-CPM] making it a 4,568-D space.
+#PCA finds new axes; instead of using original axes, find new set of perpendicular axes (PC1, PC2,..) that still describe each sample, capture main patterns of variations using fewer dimensions. [PC1: direction in gene space where samples vary the most, PC2: next direction, perpendicular to PC1, with next highest variance]
+#these PCs are linear combinations of genes (weighted average of genes), not real genes themselves
+#thus lower-dimensional view means 2D instead of 4,568-D but still capturing the main structure
+
+#points = samples, axes= PC1 and PC2 describing variation between samples.
+#genes are the variables that define the space, PCA uses their variations across samples to construct PCs.
+#=> Axes in PC1 vs PC2 scatterplot are principal component scores for samples, summarising how samples differ based on their gene expression. There are 28 points, one per sample.
+
+summary(pca_results) #=>PC1 explains 30.8% of the total variance in log-CPM gene expression (across all genes and 28 samples). #PC2 explains 7.8% of the variance.
+summary(pca_results$x)
+
+plot(pca_results$x[,1], pca_results$x[,2],
+     xlab = "PC1",
+     ylab = "PC2")
+```
+
+
+### <span style="color:orange"> 4.2 PC1 vs PC2 Expression Matrix
+
+
+```{r}
+#png("Vizs/pc1_pc2_tumor_normal.png", width  = 1200, height = 900, res = 200)
+#par(mar = c(5, 5, 4, 2))
+tissue_clean<- patient_data_clean$tissue
+
+plot(pca_results$x[,1], pca_results$x[,2],
+     xlab = "PC1 (30.8% variance)",
+     ylab = "PC2 (7.8% variance)",
+     col= ifelse(tissue_clean== "Tumour", "pink","lightblue"),
+     pch= 16)
+legend("topright",
+       legend= c("Tumour", "Normal"),
+       col= c("pink", "lightblue"),
+       pch= 16,
+       cex= 0.7,
+       bty = "o",
+       xpd = NA)
+
+#=> PC1 is the main component that separates tumor from normal samples; PC1 scores differ systematically by tissue type.
+#Tumor(pink) cluster on the left (negative PC1), normal (blue) on the right(positive PC1).
+#PC1 is mainly separating tumor vs normal.
+#PC2 explains extra variation within each group.
+#Biologically: PC1 is a weighted combination of genes that best distinguishes tumor from normal expression patterns, many genes contribute not just one
+#=> PC1 clearly separates normal from tumor samples; most of expression differences b/w these tissues are captured along PC1.
+#since PC1 is a weighted combination of all 4568 genes, it does not directly tell us which individual genes causes the separation; only summarises their combined effect into one dimension that explains about 30% of total variation
+
+#need to inspect loadings to see which genes contribute the most
+loadings<- pca_results$rotation #this has genes x PCs
+pc1_load<- loadings[,"PC1"]
+head(sort(pc1_load, decreasing= TRUE)) #strong positive contributors,ENSG00000104884 gene had a contribution of 0.05833378 (5.8%) in this Principle Component that distinguishes tumor and normal
+#genes with largest |loading| on PC1 are most responsible for tumor-normal separation in PC1vsPC2 plot
+head(sort(pc1_load, decreasing = FALSE)) #strong negative contributors
+#a large absolute loading for a gene on PC1 means: gene contributes strongly in the direction PC1 points in gene-expression space. =>changes in that gene's expression strongly affect a sample's PC1 score, helping separate groups-> it pushes tumor and normal samples apart along PC1. PC1 built from many genes together so no single gene "causes" PC1 by itself.
+```
+PC1 is the main component that separates tumor from normal samples; PC1 scores differ systematically by tissue type.
+Tumor(pink) cluster on the left (negative PC1), normal (blue) on the right(positive PC1).
+
+PC1 is mainly separating tumor vs normal. PC2 explains extra variation within each group.
+Biologically: PC1 is a weighted combination of genes that best distinguishes tumor from normal expression patterns, many genes contribute not just one
+
+PC1 clearly separates normal from tumor samples; most of expression differences b/w these tissues are captured along PC1.
+Since PC1 is a weighted combination of all 4568 genes, it does not directly tell us which individual genes causes the separation; only summarizes their combined effect into one dimension that explains about 30% of total variation.
+
+
+### <span style="color:orange"> 4.3 Elbow Plot
+
+
+```{r}
+#ELBOW PLOT- variance explained per PC vs PC number
+pca_var<- summary(pca_results)$importance["Proportion of Variance",]
+length(pca_var) #extract variance explained
+
+#png("Vizs/pca_elbowplot.png", width = 800, height = 500)
+#par(mar= c(6,5,4,2))
+plot(1:15, pca_var[1:15],
+     type= "b",
+     xlab= "Principle component",
+     ylab= "Proportion of variance explained",
+     main= "Elbow plot: first 15 PCs")
+#From the elbow plot, the curve appears to flatten about PC4, suggesting that the first four PCs capture most of the important structure in the data.
+cumsum(pca_var[1:6]) #Additional PCs each explain only about 3-4% more variance, with PC5 and PC6 contributing similar small amounts.
+```
+From the elbow plot, the curve appears to flatten about PC4, suggesting that the first four PCs capture most of the important structure in the data. Additional PCs each explain only about 3-4% more variance, with PC5 and PC6 contributing similar small amounts.
+
+
+### <span style="color:orange"> 4.4 Correlation between PC1 scores and Library Sizes
+
+
+```{r}
+lib_sizes_clean<-colSums(Y_log_clean)
+cor_test <- cor.test(pca_results$x[,1], lib_sizes_clean)
+cor_test
+```
+=> r = -0.854, p = 7.53 x 10⁻⁹
+This is a strong negative correlation; samples with larger library sizes tend to have lower PC1 scores. And this is highly significant (p < 0.001).
+
+## <span style="color:green">Part 2: Differential Expression Analysis </span>
+
+#### <span style="color:green; font-weight:bold;">Q5</span>.  Study the following code and add comments to describe what each part does. Do not change the code. Derive the mathematical equation that represents the relationship between gene expression and the predictor variables based on the given Negative Binomial regression model. Justify the use of NB over Poisson by checking mean vs. variance or dispersion parameter on the dataset after removing problematic samples. Analyze the model output to identify potential signs of overfitting and collinearity between variables. Justify your observations. (4 Marks)
+ 
+### <span style="color:green"> 5.1 Negative Binomial Model
+```{r}
+library(tidyverse)
+library(MASS)
+
+load("Coursework_Data.Rdata")
+
+idx <- 20 #chose one gene (gene20) to model
+
+# Remove outlier samples identified in Q3:
+# - Sample003 (index 3): identified as outlier from boxplot analysis (abnormal expression distribution)
+# - Sample018 (index 18): paired tumour sample from same patient (Patient 3)
+# Removing both maintains paired design integrity
+c_cl <- setdiff(1:30, c(3, 18)) #clean sample indices, everything in 1-30 that is not in (3,18)
+
+x <- patient_data$tissue[c_cl] # tissue type for clean samples
+z <- patient_data$patient[c_cl]# patient ID for clean samples
+
+tmp<- data.frame(y= Y[idx, c_cl], 
+                 x= x,
+                 z= z,
+                 lib_size = colSums(Y[,c_cl])) #counts for gene 20 across clean samples, tissue, patient ID, library size: total counts across all genes, per sample
+
+
+out <- glm.nb(y ~ x + lib_size, data = tmp) 
+#y= counts for a gene idx in each clean sample 
+#=>y~x +lib_size= model gene counts as a function of tissue and library size using negative binomial GLM (extra variability handled by the NB model)
+#log(mu_i) = B_o + B_1 . x_i + B_2 . lib_size_i    #uses lib_size as a predictor, not as an offset yet, which is more standard than including lib_size linearly (rn its a standard predictor with a coefficient)
+#where mu_i is the expected count for sample i.
+
+
+p_val <- summary(out)$coefficients[2, 4] #extract p-value for x (tissue effect) 
+#null hypotheses, H_o: B_1=0 (no difference between tumor and normal)
+#if p-value is small-> evidence that this genes expression differs bw tumor and normal (after adjusting for library size)
+#if p-value large-> no strong evidence of a tissue effect for that gene
+#==> the p-value for tissue tests whether this gene is differentially expressed between tumor and normal samples, after adjusting for library size.
+
+
+summary(out)#explore coefficients, p-values, and dispersion
+
+#=> We use negative binomial GLM because gene-level RNA-seq counts are over-dispersed: their variance is larger than the mean; the NB distribution allows extra variability beyond the Poisson assumption via a dispersion parameter
+#==>> Fit a NB model for one gene's counts with tissue and library sizes as predictors, then read off p-value for tissue
+```
+<span style="font-size: 24px; font-weight: bold; color: green;">Answer </span>
+ 
+Distribution:
+y_i ∣ x_i ,lib_size_i ∼ Negative Binomial(μ_i,θ)
+
+Log-mean:
+log(μ_i) = β_0 + β_1.x_i + β_2.lib_size_i
+
+=>For a single gene, we model counts with a negative binomial GLM where the log expected count depends linearly on tissue type and library size.
+
+### <span style="color:green"> 5.2 Negative Binomial GLM over Poisson 
+We use NB GLM because gene-level RNA sequence counts are over-dispersed: their variance is larger than mean. The NB distribution includes a dispersion parameter, θ, allowing extra variability beyond the Poisson assumption (where Var=Mean).
+
+The significant p value for tissue (p value 3.53e^-05) indicates this gene is differentially expressed between tumor and normal samples, after adjusting for library size.
+
+#### <span style="color:green; font-weight:bold;">Q6</span>. Employing the code above, perform a Negative Binomial regression analysis that includes the following covariates: Tissue type and library size. Use your raw data after removing problematic samples. Compute the p-value and Bonferroni-adjusted p-value for the tissue type covariate for each gene. Capture and record any warnings or fitting issues that arise during model fitting (you can use the function withCallingHandlers() which allows you to intercept warnings as they occur inside a loop, without stopping the entire process). Report how many genes generated warnings. For genes with warnings, extract their adjusted p-values. Briefly discuss possible reasons why some genes generated warnings. Should genes with warnings be filtered out for further analyses, or should they be retained with caution? Provide a brief justification for your decision. (5 Marks)
+
+### <span style="color:green"> 6.1 Negative Binomial Regression Analysis
+
+```{r}
+
+G<- nrow(Y) #no. of genes to test
+
+p_vals<- rep(NA, G) #empty vector- raw p-values for tissue 
+warn_flag<- rep(FALSE, G)
+
+for (g in 1:G) {
+  y_g<- Y[g,c_cl] #counts for gene g in clean samples (response variable in regression)
+  
+  tmp_g<- data.frame(
+    y= y_g,
+    x= x, # type of tissue of that sample
+    lib_sizes = colSums(Y[,c_cl])
+  )
+  
+  withCallingHandlers(
+    {fit_g<- glm.nb(y~x + lib_sizes, data= tmp_g)
+  p_vals[g]<- summary(fit_g)$coefficients[2,4] #result: raw p-val for tissue effect for gene g
+    },
+  warning = function(w) {
+    warn_flag[g] <<- TRUE #result:did the model for gene g have a warning[true/false]
+    invokeRestart("muffleWarning") #handler sets warn_flag as true for that gene, then muffles the warning so loop continues
+  }
+  )
+  
+}
+
+p_bonf <- p.adjust(p_vals, method = "bonferroni") #apply Bonferroni multiple testing correction
+sum(warn_flag) # 492 no. of genes with warnings
+p_bonf[warn_flag] # Bonferroni p-values for warning genes
+
+```
+### <span style="color:green"> 6.2 Fitting Issues
+<span style="font-size: 24px; font-weight: bold; color: green;">Answer </span> 
+
+492 out of 4568 genes generated warnings. Some genes generated warnings because of very low counts;many zeroes for a gene across samples (seen in RNA sequences, large standard errors) or because of almost no variation between normal and tumour. 
+
+The model fit is less reliable in these genes flagged with warning. In the subset of genes whose NB fits were problematic we see some highly significant adjusted p-value(close to zero), some non-significant (1.00). This would contribute to the fit of the model struggling to accommodate these values, but the gene may still be biologically interesting. A gene might show strong signal of normal-tumor differences (all zeroes in one group), but this violates the models assumptions. 
+
+We used NB regression to ask "is this gene's expression different between normal and tumour, after accounting for library size?". We must flag the genes of unstable fit and interpret their results with more robust measures.
+
+
+#### <span style="color:green; font-weight:bold;">Q7</span>. Plot  $-log10(p-value)$ vs gene index and $-log10(adjusted p-value)$ vs gene index for all the genes. Compare two plots and explain any visible differences or similarities between the raw p-value and adjusted p-value distributions. Justify your observations. Using a threshold of 0.05 for adjusted p-values, identify genes significantly associated with the tissue type. You may add a line on your plots to visulaize this. Using a code, find how many such genes you have? For your plots, use a different color to highlight genes that generated warnings during model fitting. What do you observe? (5 Marks)
+
+### <span style="color:green"> 7.1 Statistical Significance and False Discovery Control
+```{r}
+G<-nrow(Y)
+gene_index<- 1:G #created an x axis
+
+log10_p<- -log10(p_vals)
+log10_p_bonf<- -log10(p_bonf) #makes small p-values stand out
+
+#png("Vizs/pval_raw_geneindex.png",
+#    width = 800, height = 500, res=100)
+#par(mar= c(5,5,4,2))
+plot(gene_index, log10_p,
+     pch= 16, cex= 0.6,
+     xlab= "Gene Index",
+     ylab= "-log10(p-values)",
+     main= "P-values vs gene index")
+points(gene_index[warn_flag], log10_p[warn_flag],
+       col= "red", pch= 16, cex= 0.7)
+abline(h= -log10(0.05), col= "blue", lty= 2)
+
+```
+
+```{r}
+#png("Vizs/pval_bonf_geneindex.png",
+#    width = 800, height = 500, res=100)
+#par(mar= c(5,5,4,2))
+plot(gene_index, log10_p_bonf,
+     pch= 16, cex= 0.6,
+     xlab= "Gene Index",
+     ylab= "-log10(Bonferroni p-values)",
+     main= "Adjusted p-values vs gene index")
+points(gene_index[warn_flag], log10_p_bonf[warn_flag],
+       col= "red", pch= 16, cex= 0.7)
+abline(h= -log10(0.05), col= "blue", lty= 2)
+
+sig_genes<- which(p_bonf<0.05)
+length(sig_genes) #1,604 genes were significant
+
+sum(warn_flag & (p_bonf<0.05)) #383 significant genes had warnings
+```
+
+### <span style="color:green"> 7.2 Raw vs  Bonferroni-adjusted p-values across genes for the tissue effect
+
+<span style="font-size: 24px; font-weight: bold; color: green;">Answer </span>
+
+Raw p-value plot: 
+Red points are warning genes and are observed scattered across the gene index. Genes with points above the threshold line are significant and some were red (452 warning of the 3,266 significant genes). Some warning genes are highly significant indicating that there is a strong signal but the NB fit is numerically unstable and to be interpreted cautiously. Warnings also occurred for genes without strong significance, indicating fitting issue.
+
+Bonferroni plot:
+The overall pattern looks the same as the raw plot, but the adjusted plot looks more compressed near the 0. There were less genes above the threshold (1,604). Bonferroni adjustment multiples each p-value by the number of tests, that made the p-value larger; fewer genes with p-value smaller than 0.05.
+
+#### <span style="color:green; font-weight:bold;">Q8</span>. As an alternative modeling approach, consider using simple linear regression on log-transformed expression values. Fit two models for each gene: (i) $log2(CPM+1)\sim tissue$ and (ii) $log2(CPM+1)\sim tissue + patient ID$ , compute the Bonferroni-adjusted p-value for the tissue type covariate for each gene for the two models. Create a scatter plot comparing the $-log10(adjustedPvalues)$ from the two models (Model 1 vs. Model 2). Add a reference line y=x. Comment on the differences observed. Is it appropriate to include patient ID in the model? Why? Besides, test the homoscedasticity assumptions of the linear regression models for Model 1, comment on your findings. Now think about what is the advantage of NB-GLM in our case. (5 Marks)
+
+### <span style="color:green"> 8.1 Simple Linear Regression
+```{r}
+G<- nrow(Y_log_clean)
+p_lin1<- rep(NA, G)
+p_lin2<- rep(NA, G)
+
+for (g in 1:G) {
+  y_g<- Y_log_clean[g,]
+  
+  fit1<-lm(y_g~x)
+  p_lin1[g]<- summary(fit1)$coefficients["xTumour", "Pr(>|t|)"]
+
+  fit2<-lm(y_g~x +z)
+  p_lin2[g]<- summary(fit2)$coefficients["xTumour", "Pr(>|t|)"]
+}
+
+p_lin1_bonf<- p.adjust(p_lin1, method = "bonferroni")
+p_lin2_bonf<- p.adjust(p_lin2, method = "bonferroni")
+
+
+log10_lin1<- -log10(p_lin1_bonf)
+log10_lin2<- -log10(p_lin2_bonf)
+```
+
+### <span style="color:green"> 8.2 Paired vs. Unpaired Linear Models
+```{r}
+#png("Vizs/linear_models_logcpm.png",
+#    width = 800, height = 500, res=100)
+#par(mar= c(5,5,4,2))
+plot(log10_lin1, log10_lin2,
+     pch = 16, cex = 0.5,
+     xlab = "-log10(adj p) Model 1 (tissue)",
+     ylab = "-log10(adj p) Model 2 (tissue + patient)",
+     main = "Linear models on log2CPM+1")
+abline(0,1, col= "Red", lty = 2)
+
+```
+
+### <span style="color:green"> 8.3 Test on homoscedasticity assumptions
+```{r}
+#testing heteroscedasticity
+
+g_test<- 100
+y_test<- Y_log_clean[g_test,]
+fit1_ex<- lm(y_test ~ x)
+
+#png("Vizs/residuals_fitted.png",
+#    width = 700, height = 500, res= 100)
+#par(mar= c(5,5,4,2))
+plot(fitted(fit1_ex), resid(fit1_ex),
+     xlab= "Fitted values",
+     ylab= "Residuals",
+     main= paste("Residuals vs fitted: gene", g_test))
+abline(h=0, col= "blue")
+
+```
+
+
+### <span style="color:green"> 8.4 The Cost of Paired Analysis in Small Samples
+
+<span style="font-size: 24px; font-weight: bold; color: green;">Answer </span>
+
+The two models show positive correlation (points follow an increasing trend), but most points lie below the y=x line. This indicates that Model 2's -log10 adjusted p-values are typically smaller than Model 1's—meaning Model 2 produces larger (less significant) p-values.
+
+This counter-intuitive result reflects a fundamental bias-variance trade-off in small samples. While including PatientID theoretically controls for inter-patient variability by allowing each patient to serve as their own baseline, it requires estimating 13 additional parameters (one per patient minus the reference level). With only 28 observations, this substantially reduces residual degrees of freedom (from 26 to 13), inflating standard errors and reducing statistical power.
+
+The use of PatientID is conceptually appropriate for this paired study design. Each patient contributes a matched tumour-normal sample pair, and including PatientID allows the tissue coefficient to estimate the tumour vs. normal difference within each patient rather than across the population. This controls for inter-individual genetic variability that could otherwise confound the tissue effect.
+
+However, the benefits of this approach were not realised in this small dataset. The degrees-of-freedom cost of estimating patient-level parameters exceeded the variance reduction benefit. In larger cohorts, the paired design would be expected to outperform the unpaired model, as the noise reduction from blocking on patient identity would outweigh the parameter estimation penalty.
+### <span style="color:green"> 8.5 Negative Binomial vs Linear Model Comparison
+
+With regards to homoscedasticity, we plot residuals against fitted values from log2expression ~ tissue. The residuals are spread roughly symmetrical around zero with clustering at two fitted values(both tissue groupsl; two-group model). Since the residuals have roughly constant variance across the range of fitted values, it can be said it is homoscedastic.
+
+When we use the linear regression model, log2CPM+1 treats the outcome as approximately Gaussian with constant variance. In contrast, the NB-GLM models the original counts with discrete distribution and a dispersion parameter. That dispersion parameter handles overdispersion and matches the empirical pattern in RNA-seq (genes with higher average expression show disproportionately higher variability across samples). The NB model encodes the variance-mean curve as Var(Y)= μ + ϕμ^2.
+
+#### <span style="color:green; font-weight:bold;">Q9 (Optional)</span>. Co-expression Analysis Using Cleaned log2(CPM+1) Data: Firstly, select the top 100 most variable genes across all samples.  1. Compute the Pearson correlation matrix separately for Normal and Tumour samples. Visualize each correlation matrix using a heatmap (e.g., pheatmap, you may use its default clustering options). Identify and report the top 20 gene pairs with the largest absolute difference in correlation between Normal and Tumour tissues. Discussion: What potential issues arise if we only focus on the pairs with the largest correlation differences? 2. For each patient, compute the expression difference for each gene between Tumour and Normal tissue. Using these differences, compute the Pearson correlation matrix across genes and visualize it with a heatmap. Interpretation: Compare the two approaches above. What biological questions does each method address? How do they differ in what they reveal about gene co-expression? If we compute the correlation between the normal samples and tumour samples for each gene, could you try to intepret this?
+
+### <span style="color:green"> 9.1 Exploratory Co-expression Analysis
+```{r}
+
+#co-expression, vs earlier dispersion expression
+gene_var<- apply(Y_log_clean, 1, var)
+top100_idx<- order(gene_var, decreasing = TRUE)[1:100]
+Y_top100<- Y_log_clean[top100_idx,]
+
+normal_idx<- which(x== "Normal") #where x= patient_data$tissue
+tumor_idx<- which(x== "Tumour") #each entry of z is N/T for one sample, in the same order as columns of Y_top100; so it returns the column positions where tissue is tumor like c(1,4,7..)
+
+#split by tissue
+Y_norm<- Y_top100[, normal_idx]
+Y_tum<- Y_top100[, tumor_idx]
+
+#gene-gene Pearson correlations
+cor_norm<- cor(t(Y_norm), method = "pearson") #100x100
+cor_tum<- cor(t(Y_tum), method = "pearson")
+```
+
+### <span style="color:green"> 9.2 Differential Co-expression (Network Rewiring)
+```{r}
+#heatmaps with default clustering 
+#png("Vizs/gene_corrs_normal.png",
+#    width = 1200, height = 900, res=100)
+#par(mar= c(5,5,4,2))
+pheatmap(cor_norm, main= "Normal: gene-gene correlations")
+```
+
+```{r}
+#png("Vizs/gene_corrs_tumor.png",
+#    width = 1200, height = 900, res=100)
+#par(mar= c(5,5,4,2))
+pheatmap(cor_tum, main= "Tumour: gene-gene correlations")
+
+#skipping top 20 extraction
+```
+
+### <span style="color:green"> 9.3 Correlation of Differences (Dynamic Co-regulation)
+```{r}
+patients<- unique(z) #z<- patient_data$patient_id[c_cl]
+G<-nrow(Y_log_clean)
+
+#matrix to store differences:- genes x patients
+Y_diff<- matrix(NA, nrow = G, ncol = length(patients))
+rownames(Y_diff)<- rownames(Y_log_clean)
+colnames(Y_diff)<- patients
+
+for (p in 1:length(patients)) {
+  pat_id<-patients[p]
+  
+  idx_pat<-which(z==pat_id) #columns for this patient
+  
+  #within this patient, finding tumor and normal columms
+  tumor_col<- idx_pat[x[idx_pat]=="Tumour"]
+  normal_col<- idx_pat[x[idx_pat]== "Normal"]
+  
+  #gene-wise difference: Tumor-Normal
+  Y_diff[,p]<- Y_log_clean[,tumor_col]- Y_log_clean[,normal_col]
+  
+} #each col of Y_diff is now "tumor-normal log2CPM+1" for one patient
+
+
+Y_diff_top100<- Y_diff[top100_idx,]
+cor_diff<- cor(t(Y_diff_top100), method = "pearson")
+```
+
+```{r}
+#png("Vizs/tum_norm_corrs.png",
+#    width = 1200, height = 900, res=100)
+#par(mar= c(5,5,4,2))
+
+pheatmap(cor_diff, main = "Gene-gene correlations of Tumor-Normal differences")
+
+#shows which genes have similar "tumor-normal changes across patients" [co-regulated differential expression]
+
+```
+
+### <span style="color:green"> 9.4 Interpretation and Comparison
+
+<span style="font-size: 24px; font-weight: bold; color: green;">Answer </span>
+
+Approach 1. Separate normal vs tumor heatmaps
+We compute gene-gene correlations within normal and within tumor samples separately.
+It indicates which genes are co-expressed in normal tissue & the change in coexpression patterns in tumors.
+Strong positive blocks in normal but not in tumor:- suggest pathways whose coordinated expression that is disrupted in cancer
+New strong blocks in tumor but not in normal:- suggest tumor-specific regulatory programs or rewired networks.
+
+Approach 2. Correlations of tumor-normal differences
+We compute for each patient and gene the Tumor-Normal log scale
+It shows which genes tend to change together between normal and tumor across patients.
+High positive correlation:- suggests co-regulated differential expression; shared tumor-normal change pattern. Genes that are part of the same response to tumor status is highlighted (vs genes with similar levels with tumor condition).
+
+Through approach 1, we get baseline networks in healthy vs tumor tissue; focus on static relationships within a condition.
+With approach 2, we get which genes show tumor-associated shifts; unravelling dynamic changes between conditions across patients.
+This way we can find  genes whose absolute levels are linked but their tumor-effect size is independent.
+
+If we compute the correlation between the normal samples and tumour samples for each gene, then:
+A high positive correlation:- patients with high expression also tend to have high tumor expression; but doesnt override inter-patient differences fot that gene.
+Low/negative correlation:- tumor expression is more independent of baseline normal expression; indication of strong tumor-specific regulation/ patient-specific responses.
