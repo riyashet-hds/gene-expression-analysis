@@ -163,16 +163,14 @@ Analysis completes in approximately 5-10 minutes on a standard laptop.
 
 ---
 
-## Statistical Rigor Demonstrated
+## Statistical methods
 
-This project showcases several key statistical competencies:
-
-✅ **Appropriate model selection:** Negative binomial chosen over Poisson based on data properties  
-✅ **Multiple testing correction:** FDR control via Benjamini-Hochberg procedure  
-✅ **Paired design handling:** Patient-level blocking to account for within-subject correlation  
-✅ **Quality control:** PCA-based outlier detection and technical variable assessment  
-✅ **Diagnostic checking:** Model fit evaluation and assumption verification  
-✅ **Reproducible workflow:** Complete code with documentation and narrative
+- **Model:** negative binomial rather than Poisson, chosen from the data's properties
+- **Multiple testing:** false discovery rate controlled with Benjamini-Hochberg
+- **Paired design:** patient-level blocking for within-subject correlation
+- **Quality control:** PCA-based outlier checks and technical-variable assessment
+- **Diagnostics:** model fit and assumption checks
+- **Reproducibility:** full code with documentation
 
 ---
 
